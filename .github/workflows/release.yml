@@ -74,11 +74,20 @@ jobs:
             exit 1
           }
 
+          # 実際に固めた中身をログへ残す。$required は「無いと困るもの」の確認で
+          # あって、意図しないファイルが紛れ込んでも検出できないため。
+          $root   = (Resolve-Path $dist).Path
+          $packed = Get-ChildItem $dist -Recurse -File
+          Write-Host "Packaging $($packed.Count) files:"
+          foreach ($f in $packed) {
+            Write-Host "  $($f.FullName.Substring($root.Length + 1))"
+          }
+
           # ファイル名にバージョンを入れる。複数の版をダウンロードした利用者が
           # 手元で区別できるようにするため（手動実行のときはブランチ名になる）
           $zip = "DialogCursorMover-${{ github.ref_name }}.zip"
           Compress-Archive -Path $dist -DestinationPath $zip
-          Write-Host "Packaged $($required.Count) files into $zip"
+          Write-Host "Created $zip"
 
           # 署名のない exe を配る以上、利用者が「落としたものが本物か」を
           # 確かめる手段を用意しておく。リリース本文に載せる

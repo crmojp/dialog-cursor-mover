@@ -24,7 +24,7 @@
 - Windows 11（Windows 10 1703 以降でも動作するはずです）
 - ビルドには MSVC ツールチェーンの Rust が必要です
 
-依存クレートは `windows-sys` のみです。Win32 を直接呼び出しており、GUI フレームワークは使っていません。
+実行時の依存クレートは `windows-sys` のみです。ほかに、アイコンを exe へ埋め込むためのビルド時専用の依存として `winresource` を使っています。Win32 を直接呼び出しており、GUI フレームワークは使っていません。
 
 ## ビルド
 
@@ -38,6 +38,8 @@ cargo build --release
 xcopy /E /I lang           target\release\lang
 xcopy /E /I assets\theme   target\release\theme
 ```
+
+アイコンと、サンプルテーマの音・カーソルは `assets/` 内の Python スクリプトで生成しています。アプリケーションアイコンが `make_icon.py`、`cat` テーマが `make_theme_cat.py` です。生成結果はリポジトリに含めているため、ビルドに Python は必要ありません。
 
 ### ファイル構成
 
