@@ -1,0 +1,13 @@
+# Action をコミット SHA で固定すると、今度は更新されなくなる。
+# 固定と更新はセットにしないと、固定はかえって負債になる。
+#
+# Dependabot は新しいバージョンが出たときに、SHA と末尾のコメントの
+# 両方を書き換えた Pull Request を作る。中身を見てから取り込めばよい。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

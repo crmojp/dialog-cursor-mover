@@ -16,10 +16,31 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      # Action は可動タグではなくコミット SHA で固定する。
+      #
+      # このジョブは contents: write を持ち、利用者がダウンロードする zip を作る。
+      # @v4 や @stable のような可動する参照のままだと、その参照先が差し替えられた
+      # 場合に、そのまま配布物へ混入する。
+      #
+      # 末尾のコメントはバージョンの控え。Dependabot はこれを見て更新する。
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+
+      # タグと Cargo.toml のバージョンがずれたまま公開すると、
+      # 名前と中身が食い違うリリースができてしまう。先に止める。
+      - name: Check the tag matches the crate version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}' -replace '^v', ''
+          $crate = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' -List).Matches[0].Groups[1].Value
+          if ($tag -ne $crate) {
+            Write-Error "Tag ($tag) does not match the version in Cargo.toml ($crate)."
+            exit 1
+          }
+          Write-Host "Version matches: $crate"
 
       - name: Test
         run: cargo test --all
@@ -53,11 +74,50 @@ jobs:
             exit 1
           }
 
-          Compress-Archive -Path $dist -DestinationPath 'DialogCursorMover.zip'
-          Write-Host "Packaged $($required.Count) files."
+          # ファイル名にバージョンを入れる。複数の版をダウンロードした利用者が
+          # 手元で区別できるようにするため（手動実行のときはブランチ名になる）
+          $zip = "DialogCursorMover-${{ github.ref_name }}.zip"
+          Compress-Archive -Path $dist -DestinationPath $zip
+          Write-Host "Packaged $($required.Count) files into $zip"
+
+          # 署名のない exe を配る以上、利用者が「落としたものが本物か」を
+          # 確かめる手段を用意しておく。リリース本文に載せる
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          Write-Host "SHA-256: $hash"
+
+          "ZIP_NAME=$zip"    | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ZIP_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          files: DialogCursorMover.zip
+          files: ${{ env.ZIP_NAME }}
           generate_release_notes: true
+          body: |
+            ### Verifying your download
+
+            `${{ env.ZIP_NAME }}`
+
+            ```
+            SHA-256: ${{ env.ZIP_SHA256 }}
+            ```
+
+            Check it in PowerShell before running the executable:
+
+            ```powershell
+            Get-FileHash .\${{ env.ZIP_NAME }} -Algorithm SHA256
+            ```
+
+            ### First run
+
+            The executable is not code-signed, so Windows SmartScreen will warn you
+            the first time you run it. Choose **More info → Run anyway** once the hash
+            above matches. Some antivirus products may flag it too: the program
+            installs system-wide WinEvent hooks and calls `SetCursorPos`, which is how
+            it does its job — and is also what input-manipulating malware does.
+
+            It never clicks, never sends input to other windows, makes no network
+            connections, and collects no telemetry. The README describes exactly what
+            it does and does not do.
+
+            ---
