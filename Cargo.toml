@@ -8,6 +8,7 @@ description = "ダイアログのOKボタンへ自動でマウスカーソルを
 build = "build.rs"
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/crmojp/dialog-cursor-mover"
 
 [build-dependencies]
 winresource = "0.1"
