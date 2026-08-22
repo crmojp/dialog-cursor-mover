@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    # Win32 API を直接呼ぶため、ビルドもテストも Windows でしか動かない
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --all
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Verify language files
+        shell: pwsh
+        run: |
+          # 言語ファイルのキーが en.ini と一致しているか確認する。
+          # 訳し忘れや余分なキーがあると、実行時まで気づけないため。
+          function Get-Keys($path) {
+            Get-Content $path -Encoding UTF8 |
+              Where-Object { $_ -match '^\s*[^;#\[]' -and $_ -match '=' } |
+              ForEach-Object { ($_ -split '=', 2)[0].Trim() } |
+              Sort-Object -Unique
+          }
+          $base = Get-Keys 'lang\en.ini'
+          $failed = $false
+          Get-ChildItem 'lang\*.ini' | Where-Object { $_.Name -ne 'en.ini' } | ForEach-Object {
+            $keys    = Get-Keys $_.FullName
+            $missing = $base | Where-Object { $_ -notin $keys }
+            $extra   = $keys | Where-Object { $_ -notin $base }
+            if ($missing) { Write-Error "$($_.Name): missing keys: $($missing -join ', ')"; $failed = $true }
+            if ($extra)   { Write-Error "$($_.Name): unknown keys: $($extra -join ', ')";  $failed = $true }
+          }
+          if ($failed) { exit 1 }
+          Write-Host "All language files match en.ini."

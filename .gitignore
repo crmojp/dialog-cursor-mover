@@ -1,0 +1,11 @@
+/target
+/dist
+
+# 実行時に生成されるもの
+config.ini
+log.txt
+.cursor_override
+
+# アセット生成スクリプトの中間出力
+assets/*_preview.png
+assets/icon_sizes.png

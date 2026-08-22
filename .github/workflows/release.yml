@@ -1,0 +1,63 @@
+name: Release
+
+# タグを打つと、配布用の zip を作って Release に添付する。
+# 配布物は exe のほかに wav・ani・言語ファイルを含むため、
+# 手作業でまとめると入れ忘れが起きやすい。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Test
+        run: cargo test --all
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Stage distribution files
+        shell: pwsh
+        run: |
+          $dist = 'dist\DialogCursorMover'
+          New-Item -ItemType Directory -Force -Path "$dist\lang" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$dist\theme" | Out-Null
+
+          Copy-Item 'target\release\dialog-cursor-mover.exe' $dist
+          Copy-Item 'lang\*.ini'                             "$dist\lang"
+          # サンプルテーマを同梱する（リポジトリの assets\theme → 配布物の theme）
+          Copy-Item 'assets\theme\*' "$dist\theme" -Recurse
+          Copy-Item 'README.md', 'README_JP.md', 'LICENSE'   $dist
+
+          # 実行に必要なファイルが揃っているか確認してから固める
+          $required = @(
+            'dialog-cursor-mover.exe',
+            'lang\en.ini', 'lang\ja.ini',
+            'theme\cat\icon.ico', 'theme\cat\sound.wav', 'theme\cat\cursor_right.ani',
+            'README.md', 'README_JP.md', 'LICENSE'
+          )
+          $missing = $required | Where-Object { -not (Test-Path (Join-Path $dist $_)) }
+          if ($missing) {
+            Write-Error "Missing from the package: $($missing -join ', ')"
+            exit 1
+          }
+
+          Compress-Archive -Path $dist -DestinationPath 'DialogCursorMover.zip'
+          Write-Host "Packaged $($required.Count) files."
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: DialogCursorMover.zip
+          generate_release_notes: true

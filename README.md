@@ -1,0 +1,593 @@
+# DialogCursorMover
+
+A tray utility for Windows 11 that moves the mouse cursor to the **OK button** when a dialog appears, after a configurable delay, optionally playing a sound.
+
+[日本語版 README](README_JP.md)
+
+**It never clicks.** The cursor is moved and nothing else, so a false positive can never confirm an action on your behalf.
+
+---
+
+## Features
+
+- Detects dialogs through `SetWinEventHook` — no polling, 0% CPU when idle
+- Five detection paths, covering classic Win32 dialogs, WPF, WinUI/XAML, and TaskDialog command links
+- Configurable **delay** before the cursor moves
+- Plays a **.wav** of your choice, and can be switched off
+- The cursor can **glide** to the button instead of teleporting, and a **target ring** closes in where it lands
+- Tray-resident, with settings available from the context menu
+- English and Japanese UI, extensible through language files
+- Optional registration for **elevated autostart** at logon
+
+## Requirements
+
+- Windows 11 (Windows 10 1703 or later should also work)
+- Rust with the MSVC toolchain, to build
+
+The only dependency is `windows-sys`. Win32 is called directly; there is no GUI framework.
+
+## Building
+
+```powershell
+cargo build --release
+```
+
+Then copy the runtime files next to the executable:
+
+```powershell
+xcopy /E /I lang           target\release\lang
+xcopy /E /I assets\theme   target\release\theme
+```
+
+### File layout
+
+```
+dialog-cursor-mover.exe
+lang\
+  en.ini
+  ja.ini
+theme\
+  cat\                      sample theme (optional)
+config.ini                  created automatically
+log.txt                     created automatically
+```
+
+The icon is embedded into the executable at build time, so `icon.ico` does not need to be distributed.
+
+Every runtime file is optional. Missing sounds or cursors only disable that particular feature; missing language files fall back to the built-in English strings.
+
+Settings and logs are written next to the executable. If that directory is not writable (for example under `Program Files`), `%APPDATA%\DialogCursorMover\` is used instead. The actual location is shown under **About** in the tray menu.
+
+## Usage
+
+Right-click the tray icon for the menu:
+
+| Item | Description |
+| --- | --- |
+| Enabled | Turn dialog watching on or off |
+| Ignore file/folder pickers | Skip Open / Save / Select Folder dialogs |
+| Delay | Time before the cursor moves (preset values) |
+| Play sound | Toggle sound, or choose your own `.wav` |
+| Animate the movement | Glide to the button instead of jumping |
+| Speed | Fast / Normal / Slow |
+| Show a target ring on arrival | Concentric rings closing in where the cursor lands |
+| Use a custom cursor | Swap the cursor image during the movement (needs your own `.ani`) |
+| Start at logon as administrator | Register or remove a Task Scheduler entry |
+| Diagnostics | Test dialog, log level, open log, language |
+| Open settings / Reload settings | Edit `config.ini` and apply changes |
+
+To verify the setup, use **Diagnostics → Show test dialog**.
+
+## Language
+
+UI strings and the comments inside `config.ini` are read from `lang\<code>.ini`. English is the default.
+
+Switching the language from the tray menu rewrites `config.ini` with translated comments. **All setting values are preserved** — only the comments change, since key names and value formats are language independent.
+
+### Adding a language
+
+Copy `lang\en.ini`, translate the values, and save it as `lang\<code>.ini`. It appears in the menu automatically, using the `lang.name` value as its display name.
+
+```ini
+; lines starting with ';' are comments
+lang.name = English                     ; shown in the language menu
+menu.enabled = Enabled                  ; plain string
+menu.delay.current = Current: {0} ms    ; {0} is replaced at runtime
+cfg.enabled = Whether watching\nis active.   ; \n becomes a line break
+```
+
+Keys named `cfg.<setting>` become the comment for that setting in `config.ini`. Missing or empty keys fall back to the built-in English text, so a partial translation is fine.
+
+## Themes
+
+The icon, the cursor shown while moving, and the sound can all be replaced by
+dropping a folder into `theme\` next to the executable:
+
+```
+dialog-cursor-mover.exe
+theme\
+  cat\
+    icon.ico
+    cursor_right.ani  cursor_right_fast.ani  cursor_right_slow.ani
+    cursor_left.ani   cursor_left_fast.ani   cursor_left_slow.ani
+    sound.wav
+```
+
+Pick one from **Theme** in the tray menu; the folder name is the theme name.
+Every file is optional — whatever is missing falls back to the built-in icon and
+to the Windows cursor and sound, so a theme can supply only a sound if that is
+all you want.
+
+Selecting a theme turns **Use a custom cursor while moving** on, and returning
+to the default turns it off — picking a theme usually means you want to see its
+cursor, and going back to the default usually means you want the Windows one.
+This happens only at the moment you switch; toggling it yourself afterwards
+sticks.
+
+The three cursor speeds correspond to the **Speed** setting. Only
+`cursor_<side>.ani` is required; the `_fast` and `_slow` variants are used when
+present, and the plain one is reused otherwise. Supplying all three lets the
+frame rate match the travel speed, which otherwise looks wrong at the extremes.
+
+A sample theme named `cat` ships with the repository. Regenerate or adapt it
+with:
+
+```powershell
+py -m pip install pillow numpy
+py assets\make_theme_cat.py
+```
+
+The script is a reasonable starting point for a theme of your own: it draws the
+icon and the six cursor frames with Pillow, writes the `.ani` files by hand
+(Pillow cannot), and synthesises the sound with NumPy.
+
+### Authoring a theme
+
+#### Folder and file names
+
+Create one folder per theme under `theme\`, next to the executable.
+**The folder name is the theme name** and appears in the menu.
+
+```
+dialog-cursor-mover.exe
+theme\
+  my-theme\              <- ASCII letters, digits, '-' and '_' only, 64 chars max
+    icon.ico
+    cursor_right.ani
+    cursor_right_fast.ani
+    cursor_right_slow.ani
+    cursor_left.ani
+    cursor_left_fast.ani
+    cursor_left_slow.ani
+    sound.wav
+```
+
+The file names below are **fixed**. Use lowercase throughout, since case
+sensitivity varies, and keep everything directly in the theme folder —
+subfolders are not searched.
+
+| File | Purpose | If absent |
+| --- | --- | --- |
+| `icon.ico` | Tray icon | Built-in icon |
+| `cursor_right.ani` | Facing right, normal | Cursor is not replaced |
+| `cursor_right_fast.ani` | Facing right, fast | `cursor_right.ani` |
+| `cursor_right_slow.ani` | Facing right, slow | `cursor_right.ani` |
+| `cursor_left.ani` | Facing left, normal | Cursor is not replaced |
+| `cursor_left_fast.ani` | Facing left, fast | `cursor_left.ani` |
+| `cursor_left_slow.ani` | Facing left, slow | `cursor_left.ani` |
+| `sound.wav` | Sound played on moving | A Windows system sound |
+
+**Every file is optional.** A theme may supply only a sound, or only an icon.
+Files larger than 8 MB are ignored.
+
+#### Icon (`icon.ico`)
+
+A Windows ICO file. The tray requests the size reported by
+`GetSystemMetrics(SM_CXSMICON)`, so **16x16 and 32x32 must both be present**.
+High-DPI setups also use 24, 40 and 48.
+
+The bundled `cat` theme carries nine sizes: 16, 20, 24, 32, 40, 48, 64, 128
+and 256.
+
+**Use a 32bpp alpha channel for transparency.** Tray backgrounds differ
+sharply between light and dark themes, so the older approach of nominating one
+colour as transparent leaves visible fringing.
+
+The tray draws it at 16x16. Fine detail disappears at that size, so favour a
+silhouette that stays readable. Drawing large and scaling down often produces
+something unrecognisable at 16x16.
+
+#### Cursors (`cursor_*.ani`)
+
+Windows animated cursor files.
+
+| Property | Value |
+| --- | --- |
+| Size | 32x32 (at standard DPI) |
+| Colour depth | 32bpp with alpha |
+| Frames | No limit (the bundled theme uses 6) |
+| Hotspot | At the leading edge |
+
+**Both directions are required.** `right` and `left` are chosen by the
+direction of travel; the left-facing set can simply be the right-facing one
+mirrored.
+
+**The hotspot** is the cursor's logical point and lands exactly on the centre
+of the button. Placing it at the leading edge — the right edge for a
+right-facing cursor — makes the body appear to trail behind. Placing it in the
+middle leaves the body overhanging the button on arrival.
+
+**The three speed variants** differ only in frame rate. An `.ani` file stores
+its own frame duration and it cannot be changed at runtime, which is why a
+separate file per speed is needed. The bundled theme uses:
+
+| Speed | Travel time | Frame duration |
+| --- | --- | --- |
+| Fast | 160 ms | ~50 ms |
+| Normal | 320 ms | ~83 ms |
+| Slow | 640 ms | ~133 ms |
+
+Supplying only the unsuffixed file works, but the same animation is then used
+at every speed, and the artwork will not match how fast the cursor travels.
+
+Most image editors cannot write `.ani`. Use a dedicated cursor editor, or
+assemble the binary directly as `assets\make_theme_cat.py` does.
+
+#### Sound (`sound.wav`)
+
+A RIFF WAVE file, subject to these limits:
+
+- The extension must be `.wav` (renaming another format will not play)
+- At most 16 MB, and at most 8 MB as a theme file
+- Network paths are rejected (not normally an issue, since themes sit beside
+  the executable)
+
+**Keep it under about 500 ms.** The movement itself finishes in 160–640 ms, so
+anything longer overlaps whatever the user does next.
+
+The bundled theme is 44.1 kHz, 16-bit, mono, peaking at 50% amplitude. This is
+a notification sound that will play repeatedly, so a restrained level wears
+better. Starting and ending at zero amplitude avoids an audible click.
+
+#### Applying changes
+
+The theme list is re-read whenever the menu opens, so a newly added folder
+appears as soon as you reopen it. Icons and cursors are cached, so after
+replacing files either reselect the theme or restart the application.
+
+#### Distributing
+
+Themes are treated as third-party content, so symbolic links and files
+resolving outside the theme folder are refused. Zipping the folder as-is is the
+reliable way to share one.
+
+## Settings
+
+`config.ini` sits next to the executable and is created on first run. After editing it by hand, choose **Reload settings** from the tray menu.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `language` | `en` | UI language, matching a file in `lang\` |
+| `theme` | (empty) | Theme name, matching a folder in `theme\` |
+| `enabled` | `true` | Whether watching is active |
+| `delay_ms` | `300` | Delay before the cursor moves (0–60000 ms) |
+| `sound_enabled` | `true` | Play a sound when moving |
+| `wav_path` | a Windows system sound | Local path of the `.wav` to play (UNC rejected, 16 MB max) |
+| `move_animation` | `true` | Run to the button instead of jumping |
+| `move_duration_ms` | `320` | How long the run takes (0–5000 ms) |
+| `move_wobble` | `4` | Sideways wobble while running (0–40 px) |
+| `cursor_animation` | `false` | Swap the cursor image while running |
+| `ripple_enabled` | `true` | Show a target ring where the cursor lands |
+| `ripple_size` | `96` | Diameter of the rings (16–600 px) |
+| `ripple_duration_ms` | `420` | How long the rings take to close in (0–3000 ms) |
+| `ripple_color` | `3A84D6` | Ring colour as `RRGGBB` |
+| `abort_on_user_move` | `true` | Give way if the user moves the mouse |
+| `user_move_threshold` | `12` | Movement treated as user input (px) |
+| `standard_dialog_only` | `true` | Only consider window class `#32770` |
+| `require_foreground` | `true` | Only move when the dialog is in front |
+| `skip_if_cursor_inside` | `true` | Do nothing if the cursor is already on the button |
+| `move_once_per_dialog` | `true` | React only once per dialog |
+| `ignore_own_process` | `false` | Ignore dialogs from this application |
+| `watch_title_changes` | `true` | Treat title changes as a trigger |
+| `watch_focus_changes` | `true` | Treat focus changes as a trigger |
+| `follow_dialog_default_button` | `true` | Follow the default button even without a label match |
+| `follow_default_in_browser` | `false` | Apply the above inside browsers |
+| `uia_enabled` | `true` | Use UI Automation for XAML/WinUI dialogs |
+| `uia_dialog_like_only` | `true` | Restrict UIA scanning to dialog-shaped windows |
+| `uia_max_elements` | `800` | Element limit for a UIA scan (20–5000) |
+| `skip_file_dialogs` | `true` | Ignore file and folder pickers |
+| `skip_progress_dialogs` | `true` | Ignore dialogs that contain a progress bar |
+| `exclude_processes` | (empty) | Executables to ignore, comma separated |
+| `exclude_titles` | (empty) | Title substrings to ignore, comma separated |
+| `extra_button_labels` | (empty) | Additional labels treated as OK |
+| `log_level` | `0` | 0 = off, 1 = normal, 2 = verbose |
+
+`exclude_processes` and `exclude_titles` are matched case-insensitively.
+
+## How the OK button is found
+
+Five paths are tried, in this order of preference.
+
+### 1. HWND, by label
+
+The child windows are scanned, and **a label match is required**. Labels recognised by default are `OK`, `はい`, `Yes`, `了解`, `続行`, and `Continue`, plus anything in `extra_button_labels`. Mnemonics are stripped, so `Save(&S)` matches `Save`.
+
+Control ID and `BS_DEFPUSHBUTTON` only break ties between candidates; neither is sufficient on its own. `IDOK` adds 100 to the score, so a standard `MessageBox` OK button always wins against any other match in the same dialog.
+
+There is deliberately no shortcut that accepts `IDOK` without checking the label. Win32 applications often build their main window as a dialog, which makes its class `#32770` and gives its primary action control ID 1 — a file transfer tool's *Execute* button, for instance. Requiring the label keeps the rule to one sentence: the cursor moves to a button whose label is recognised, or to a default button that passes the layout test below.
+
+Button classes are matched by substring, so `TNewButton` (Inno Setup) and `TButton` (Delphi) are accepted alongside `Button`. `BS_OWNERDRAW` buttons are accepted too, since owner drawing only changes how a push button looks.
+
+### 2. HWND, by default button
+
+If no label matches and `follow_dialog_default_button` is on, a `BS_DEFPUSHBUTTON` is accepted when either
+
+- a Cancel-like button sits beside it (a wizard's *Next / Cancel* row), or
+- it sits in the bottom quarter of the dialog (a lone *Close* in an about box).
+
+A button whose own label is Cancel-like is never chosen. During installation a wizard often disables *Next*, making *Cancel* the default — moving there would be the opposite of the intent.
+
+This heuristic is **not applied inside browsers** (`follow_default_in_browser`, default off). Web pages can build arbitrary UI, and a *Block / Cancel* pair is structurally indistinguishable from a real dialog's button row.
+
+Buttons may be arranged horizontally (*OK / Cancel*) or vertically (TaskDialog command links); both layouts are recognised.
+
+### 3. UI Automation
+
+XAML, WinUI, and WPF dialogs do not expose real HWND buttons. For these, `ElementFromHandle` followed by `FindAll(TreeScope_Descendants)` looks for elements that are
+
+- of control type `Button` (50000) or `Hyperlink` (50005),
+- enabled and not offscreen,
+- named like one of the labels above.
+
+`CreatePropertyCondition` narrows the scan on the UIA side. Without it, a browser window returns thousands of elements, each requiring cross-process property reads.
+
+### 4 & 5. Focus
+
+Some dialogs are drawn *inside* the host window and create no new HWND — the "save changes before closing?" prompts in modern XAML-based editors work this way. Nothing can be detected by watching windows, but focus moves to the default button when the dialog opens, so `GetFocusedElement` is checked on `EVENT_OBJECT_FOCUS`. This costs a single UIA call, with no tree walk.
+
+The same label match and default-button rules apply, so these appear in the log as `[FOCUS]` and `[FOCUS(default)]`.
+
+## Triggers
+
+Four WinEvents are hooked:
+
+| Event | Purpose |
+| --- | --- |
+| `EVENT_SYSTEM_DIALOGSTART` | Standard dialogs |
+| `EVENT_OBJECT_SHOW` | Windows the above misses |
+| `EVENT_SYSTEM_FOREGROUND` | Applications that reuse a window |
+| `EVENT_OBJECT_NAMECHANGE` | Dialogs that replace their own contents |
+| `EVENT_OBJECT_FOCUS` | Dialogs drawn inside a host window |
+
+Title watching exists for Explorer's "Replace or Skip Files" prompt, which is the copy-progress window rewriting itself rather than a new window. No show event is emitted, and the title changing from "87% complete" is the only clue.
+
+## What is filtered out
+
+Checks run in the order below. The first one that matches ends the process, so
+**an exclusion always wins over `extra_button_labels`** — a dialog ruled out by
+title or process is never searched for buttons at all, and the label list is
+never consulted.
+
+| # | Stage | Governed by |
+| --- | --- | --- |
+| 1 | Is it a dialog at all? | `standard_dialog_only`, `uia_dialog_like_only` |
+| 2 | Is it in the foreground? | `require_foreground` |
+| 3 | Is it from this application? | `ignore_own_process` |
+| 4 | Have we already acted on it? | `move_once_per_dialog` |
+| 5 | *(after the delay)* Excluded by title? | `exclude_titles` |
+| 6 | Excluded by process? | `exclude_processes` |
+| 7 | Is it a file picker? | `skip_file_dialogs` |
+| 8 | Is it a progress dialog? | `skip_progress_dialogs` |
+| 9 | **Find the OK button** | `extra_button_labels`, `follow_dialog_default_button` |
+| 10 | Is the cursor already there? | `skip_if_cursor_inside` |
+
+Stages 5 to 8 run *after* the delay, because a dialog's child controls are not
+always in place the instant it appears.
+
+There is no way to make `extra_button_labels` override an exclusion. To carve
+out an exception, narrow the exclusion instead — make a title substring more
+specific, or swap a process exclusion for a title one.
+
+**Candidate windows** must look like a dialog (`uia_dialog_like_only`): they carry a title bar or a title string, are not larger than 80% of their monitor, and satisfy at least one of "has an owner", "cannot be resized", or "fits in half the monitor". Transient shell windows (`SysDragImage`, `tooltips_class32`, `SysShadow`, tray overflow) are rejected by class name.
+
+The title requirement also accepts a plain title string, not just `WS_CAPTION`, because some applications draw their own title bars.
+
+Monitor size comes from `MonitorFromWindow`, not from the primary display, so multi-monitor setups judge each window against the screen it is actually on.
+
+**File pickers** contain a shell view (`SHELLDLL_DefView`), which is how they are told apart from ordinary dialogs — the confirm button carries `IDOK` and cannot be distinguished by class or label.
+
+The view alone is not enough, though: a file's property sheet also creates one for its *Previous Versions* tab, so visiting that tab would make the dialog look like a picker. Two further conditions settle it — the view must be *visible*, and the dialog must have no tab control (`SysTabControl32`). Pickers have no tabs; property sheets always do.
+
+**Progress dialogs** are detected through a visible progress bar (`msctls_progress32`, or UIA control type 50012). Only visible bars count, so Explorer's file-replace prompt still works while its progress display is hidden.
+
+**Repeat reactions** are suppressed per dialog. Switching tabs in a settings dialog fires show events for each page, and re-activating a window fires them again; without this the cursor would return to OK every time.
+
+The record is keyed on the window alone, not on where the button was. Including the position would mean that dragging a dialog across the screen made it look like a different one, so it would react again on every activation. The record is cleared when the window closes, so reopening the dialog works normally.
+
+Dialogs drawn inside a host window need a different rule. They have no window of their own, so the only thing available to record is the host application's window — and suppressing until *that* closes would mean never reacting again until the application exits. These are tracked by **focus state** instead: once focus leaves the button, the dialog is considered gone and the record is released.
+
+## Movement
+
+With `move_animation` on, the cursor accelerates and decelerates over `move_duration_ms` using smoothstep, wobbling slightly perpendicular to its path. The wobble decays to zero, so the landing point is exactly the centre of the button.
+
+Speed presets are Fast (160 ms), Normal (320 ms), and Slow (640 ms). Each ships with a matching cursor whose frame rate differs, because changing only the duration would leave the legs spinning at the wrong speed.
+
+If the user moves the mouse during the run, the movement is abandoned. Cursor updates can lag by one tick when an elevated window is in front, so the distance commanded on the previous tick is added to the tolerance.
+
+### Cursor replacement
+
+`SetSystemCursor` changes the cursor for the whole desktop, so a crash while it is swapped would leave it that way. Three safeguards apply: a marker file exists while swapped, startup restores unconditionally if that marker is present, and `WM_DESTROY` and `WM_ENDSESSION` both restore.
+
+If the cursor is ever stuck, restarting the application fixes it, as does **Settings → Bluetooth & devices → Mouse → Additional mouse settings → Pointers → Use Default**.
+
+## Running against elevated applications
+
+**Cursor movement is refused entirely** while an elevated window is in the foreground and this application is not elevated. This is UIPI, not a permission that can be requested. Detection and button lookup still work, but nothing moves. The sound is deliberately withheld in this case — it plays only once the cursor has been confirmed to move, so a silent non-response is the signal that something is blocking it:
+
+```
+Aborted: cursor movement was refused. The foreground window may be
+running with administrator privileges.
+```
+
+| Capability | Unelevated |
+| --- | --- |
+| WinEvent hooks | usually delivered |
+| `EnumChildWindows` | works |
+| UI Automation | often blocked |
+| `exclude_processes` | **does not work** (`OpenProcess` fails) |
+| `SetCursorPos` | **refused** |
+
+Use `exclude_titles` when `exclude_processes` cannot see the process.
+
+**The only fix is to run this application as administrator.** Weigh that against how often you need it; a permanently elevated resident process is a larger attack surface.
+
+UAC consent prompts live on the secure desktop and are out of reach regardless — by design, and appropriately so.
+
+## Autostart
+
+Place a shortcut in `shell:startup` for a normal launch.
+
+For an elevated launch, use **Start at logon as administrator** in the tray menu, which registers a Task Scheduler entry named `DialogCursorMover` (logon trigger, highest privileges, allowed on battery). A UAC prompt appears once during registration. Unchecking the item removes the task.
+
+**Re-register after moving or renaming the executable**, since the task stores the path.
+
+Elevated processes reject the `TaskbarCreated` broadcast from the unelevated Explorer, which would leave no tray icon at logon. `ChangeWindowMessageFilterEx` allows that message specifically, and registration is retried every 3 seconds up to 20 times in case the taskbar is not ready yet.
+
+**Windows services do not work for this.** Services run in session 0, isolated from the user's desktop; hooks, cursor control, and the tray icon are all unavailable there.
+
+## Diagnostics
+
+Set **Diagnostics → Log: verbose** and reproduce the problem, then open the log. Every rejection records its reason.
+
+| Log line | Suggested action |
+| --- | --- |
+| `Not a candidate ... class="..."` | Not a standard dialog — try `standard_dialog_only = false` |
+| `Aborted: the dialog is not in the foreground` | Set `require_foreground = false` |
+| `Aborted: no OK button found` | The same line lists the buttons that were seen; add one to `extra_button_labels` |
+| `Aborted: cursor movement was refused` | Run this application as administrator |
+| nothing at all | The dialog may be drawn without any HWND or UIA information |
+
+Verbose logging produces a few thousand lines per hour, so return it to **normal** or **off** for daily use.
+
+The log is capped at 1 MB. On reaching it, roughly the older half is dropped and the rest is kept, so the most recent entries always survive. The cut is made at a line break rather than at an exact byte offset — window titles in the log may contain multi-byte characters, and slicing mid-character would corrupt the file.
+
+## Resource usage
+
+Idle CPU is 0%; the message loop blocks in `GetMessageW` and nothing polls.
+
+The hot path allocates nothing — `EVENT_OBJECT_NAMECHANGE` fires constantly across the desktop, so a `Copy` snapshot of the scalar settings is used instead of cloning `Config`, and class names are compared on the stack.
+
+The log file handle is kept open rather than reopened per line, and its size is tracked instead of calling `metadata()`.
+
+UIA scanning is the only expensive operation, which is why it is narrowed by control type, throttled to once per 600 ms per window, and capped by `uia_max_elements`. Most of the process memory is `UIAutomationCore.dll`; setting `uia_enabled = false` avoids loading it entirely.
+
+The process is marked per-monitor DPI aware at startup. Without that, `GetWindowRect` and `SetCursorPos` would use virtualised coordinates while UIA returns physical ones, putting the cursor in the wrong place on scaled displays.
+
+## Known limitations
+
+- **UAC consent dialogs** are on the secure desktop and cannot be reached.
+- **Applications that draw their entire UI themselves** expose neither HWND children nor UIA elements. Some cross-platform toolkits and custom widget libraries work this way, and nothing can locate their buttons.
+- **Web dialogs** depend on the page. If focus never lands on a button, there is no trigger.
+- `delay_ms` below roughly 200 ms may fire before the buttons are laid out.
+
+## Regenerating the assets
+
+The icon is generated by a script rather than taken from any existing artwork.
+
+```powershell
+py -m pip install pillow
+py assets\make_icon.py
+```
+
+The icon draws a cursor approaching a target — the function of the application, with no character or mascot. It is rendered at 1024 px and downscaled, keeping only two rings so the shape still reads at 16 px.
+
+To replace the icon, overwrite `assets\icon.ico` and rebuild.
+
+## How this was built
+
+The code in this repository was written by Claude (Anthropic) over an extended
+conversation. Nothing was copied from any existing application, and no other
+program was disassembled or reverse engineered; the implementation was derived
+from the Win32 API documentation and from what could be observed at runtime.
+
+The design that survived is not the one that was written first. Almost every
+correction came from diagnostic logs captured on a real machine — that cursor
+movement is refused outright while an elevated window is in front, that an
+elevated process never receives the taskbar's broadcast and so shows no tray
+icon, that one shell prompt is not a new window at all but an existing one
+rewriting itself, that a button can carry the right label while using a style
+the first implementation rejected. None of that is visible without running the
+thing and reading what it recorded.
+
+So the honest description is a conversation, not a generator: the author tested
+each build on real hardware, and Claude revised the code from the logs that
+testing produced, over several days.
+
+## Development
+
+```powershell
+cargo test          # unit tests
+cargo clippy --all-targets -- -D warnings
+cargo fmt --all
+```
+
+Tests cover the parts that do not depend on live Win32 state: label normalisation and matching, the button-row geometry, language-code validation and value sanitising, and a **round trip of every setting** through `to_ini` / `parse_ini`.
+
+That last one matters most. There are 34 settings, and adding one means touching both the reader and the writer — the round-trip test fails if only one side is updated, instead of the omission surfacing as silently lost settings months later.
+
+CI runs on `windows-latest`, since the crate calls Win32 directly and cannot build elsewhere. It also checks that every language file has exactly the same set of keys as `en.ini`, so a missed translation is caught before release.
+
+Pushing a `v*` tag builds a zip containing the executable, sounds, cursors, language files, and documents, verifies nothing is missing from it, and attaches it to a GitHub release.
+
+## Security notes
+
+### The trust boundary is the executable's directory
+
+`config.ini`, `log.txt`, `lang\`, the sounds, and the cursors all live beside the executable and are read from there. **Anyone who can write to that directory can change how this application behaves** — and if it is registered for elevated autostart, that behaviour runs with administrator privileges.
+
+Install it somewhere only administrators can write to, or keep it under your own profile and treat the directory as you would any other executable location. Do not place it in a directory that other users or unprivileged services can write to.
+
+Settings automatically fall back to `%APPDATA%\DialogCursorMover\` when the executable's directory is not writable, which is the safer arrangement for a shared machine.
+
+### Handling of untrusted input
+
+`config.ini` is parsed defensively. Numeric values go through `parse` with a fallback and are then clamped to a valid range, so a malformed or out-of-range value simply reverts to the default. String values are owned `String`s and are never copied into fixed-size buffers.
+
+`language` is validated before it is used as part of a path. Without that check, `Path::join` would let an absolute path replace the base directory entirely — `language = C:\...` or a UNC path would read outside `lang\`.
+
+`wav_path` is the only asset that may point anywhere, so it is restricted: UNC paths are rejected (a remote path would trigger an outbound connection on every playback), the extension must be `.wav`, and files larger than 16 MB are refused. The icon and cursors use fixed file names within the executable's directory and cannot be redirected.
+
+**Language files deserve a little more care than the other assets.** They are parsed by this application rather than by Windows, their contents flow into menu labels and `config.ini` comments, and — unlike the icon or the cursors — you are invited to bring in translations that somebody else wrote. Values are therefore normalised on load: NUL and other control characters are stripped (a NUL would truncate the string when Win32 renders it), each value is capped at 2000 characters, and the file itself is limited to 512 KB and 2000 keys. Only line breaks written as `\n` survive, which is what `config.ini` comments need.
+
+Even so, a language file can change every piece of text you see. Read a translation before installing it, exactly as you would any other file you place beside the executable.
+
+Window titles recorded in the log come from other processes and may contain anything, including line breaks. Control characters are replaced and each line is capped before being written, so a title cannot start a new log line and fabricate a whole entry. Within a line the title appears as it was written, so read the quoted values as untrusted text rather than as facts the application is vouching for.
+
+**The log records window titles, so read it before you share it.** At `log_level = 1` every dialog that is acted on is recorded with its title; at level 2 so is every top-level window that raises an event, along with the names of the controls found inside it. In normal use that captures document names, browser page titles, and notification text. Review `log.txt` before attaching it to a bug report.
+
+**Themes are treated the same way as language files.** They are meant to be
+shared, so a theme folder is not assumed to be as trustworthy as the executable
+beside it. A theme name is validated before it becomes part of a path, files are
+capped at 8 MB each, symbolic links and junctions are refused, and the resolved
+path is checked to be inside the theme's own folder. The sound goes through the
+same checks as `wav_path`.
+
+What cannot be checked is the file contents: an `.ico`, an `.ani` and a `.wav`
+are parsed by Windows, not by this application. Treat a downloaded theme as you
+would any other file you place beside the executable.
+
+### What this application does not do
+
+It never clicks and never sends input to other windows.
+
+It does launch three programs, each by an absolute path so that the current directory is never searched first: `schtasks.exe` for autostart registration — invoked with an argument array, not through a shell — `notepad.exe` when you open the log or the settings file, and itself through the `runas` verb when registering the autostart task needs administrator rights.
+
+It makes no network connections, collects no telemetry, and writes only to `config.ini` and `log.txt`.
+
+UAC consent prompts are on the secure desktop and are unreachable. This is intentional: the pause UAC forces is a security feature, and moving the cursor onto **Yes** would erode it.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Provided as is, without warranty of any kind.
+
+The icon is generated by the script in `assets\` and is covered by the same license.
