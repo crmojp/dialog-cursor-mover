@@ -5,6 +5,8 @@
 
 16x16 でも形が読めるよう、リングは 2 本に絞り、線幅を太めに取っている。
 1024px で描いてから各サイズへ縮小する。
+
+実行には Pillow が必要（pip install pillow）。
 """
 
 from PIL import Image, ImageDraw

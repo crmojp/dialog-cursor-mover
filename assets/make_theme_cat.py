@@ -1,6 +1,6 @@
 """サンプルテーマ「cat」のアセットを生成する。
 
-テーマは exe と同じ階層の assets\\<名前>\\ に置き、次のファイルを持つ。
+テーマは exe と同じ階層の theme\\<名前>\\ に置き、次のファイルを持つ。
 いずれも任意で、無いものは既定（アプリ内蔵のアイコン、Windows のカーソルと音）
 にフォールバックする。
 
@@ -10,6 +10,8 @@
     sound.wav
 
 実行すると assets\\theme\\cat\\ に書き出す。
+
+実行には Pillow と NumPy が必要（pip install pillow numpy）。
 """
 
 import math
