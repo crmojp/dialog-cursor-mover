@@ -24,4 +24,5 @@
 *.ani   binary
 *.wav   binary
 *.png   binary
+*.gif   binary
 *.exe   binary

@@ -2,6 +2,8 @@
 
 A tray utility for Windows 11 that moves the mouse cursor to the **OK button** when a dialog appears, after a configurable delay, optionally playing a sound.
 
+![The cursor gliding to a dialog's OK button, with a target ring closing in where it lands](assets/demo.gif)
+
 [日本語版 README](README_JP.md)
 
 **It never clicks.** The cursor is moved and nothing else, so a false positive can never confirm an action on your behalf.
